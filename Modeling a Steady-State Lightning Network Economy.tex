@@ -1,0 +1,458 @@
+\documentclass[a4paper]{article}
+
+\usepackage{fancyvrb}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue,}
+
+\begin{document}
+
+\title{Modeling a Steady-State Lightning Network Economy}
+\author{Gregorio Guidi}
+\date{\today}
+
+\maketitle
+
+\begin{abstract}
+In this paper, we consider an idealized scenario in which the Lightning Network (or any similar payment network) has scaled to the size and volume of a self-sustained economy, meaning that the number of on-chain transactions --- including channel opening and closing --- has become negligible when compared to the number of off-chain transactions, and payments continuously flow across a network with relatively stable topology. We take this scenario to the extreme and model a network where the channels are fixed, so that payments form a completely closed system, and where nodes have (on a long enough timescale) stable and perfectly balanced incoming and outgoing payments (i.e. they spend exactly what they earn). We call this scenario the ``steady-state economy'' of the payment network.
+We argue that in such scenario, in a network of $n$ connected nodes, there is a tendency towards a state where exactly $n-1$ channels have perfectly balanced flows in the two directions (``self-balancing'' channels), while all other channels are either unused, or have a permanent tendency towards imbalance: the channel balance accumulates at one end and the channel is only intermittently available in one direction (``stuttering'' channels). We note that the ``self-balancing'' channels form a spanning tree of the network graph, which we call the ``core spanning tree'' of the payment network.
+We also try to derive some practical lessons from this idealized scenario, hopefully providing some useful insight to node operators of the current (embryonic) Lightning Network.
+At the end of the paper, we provide some remarks on the more general case in which nodes do not balance their income and expenses.
+
+Keywords: Lightning Network, Bitcoin, payment network, graph theory, steady-state
+\end{abstract}
+
+\section{Introduction}\label{sec_introduction}
+
+The \href{https://en.wikipedia.org/wiki/Lightning_Network}{Lightning Network} is an implementation of a peer-to-peer network of bilateral payment channels on top of the Bitcoin network. It allows balances to move within a channel without the need to record any transaction on-chain (as long as counterparties cooperate). Moreover, the Lightning Network allows transfer of value from any two endpoints of the network in a cryptographically secure way, provided that a suitable chain of payment channels exists between the endpoints.
+
+As a second layer scaling solution for Bitcoin, the Lightning Network is designed to sustain orders of magnitude more transactions than the Bitcoin Network itself, by allowing existing channels to be reused over and over to carry payments across the network. It is currently in its infant stage, but among participants in the Bitcoin ecosystem it is certainly raising the highest expectations in terms of delivering a payment network with much relaxed constraints on frequency and volume of the transactions. Indeed, on paper, with its clever architecture, the Lightning Network can support a nearly unlimited amount of cryptographically secure trustless transactions, compared to the underlying Bitcoin network. As a result, a natural question arises: given the potential of the network to scale massively, how exactly would the network look like once it has scaled to a critical size (when the number of Bitcoin on-chain transactions is negligible compared to the number of transactions within the Lightning Network itself)?
+
+In particular, how \emph{sustainable} is a scenario where on-chain transactions are seldom accessible (or accessible only at great expense), and the second-layer network sustains a stable flow of payments much larger in volume that the throughput of the first-layer network, so that the second-layer network can be considered almost closed (i.e. with little inflows and outflows due to channel openings and closings). In other words, can the network sustain a scenario where payments flow continuously from payer to payee, reusing over and over the same channels, indefinitely?
+
+To study this proposition, we look at a hypothetical long term scenario in which, pushing matters to the extreme, the Lightning Network forms a perfectly closed economy, as seen in the toy models of economic textbooks: every node has an income that it receives from providing goods and services to other nodes\footnote{Including here also buying/selling of external financial assets.}, and spends its income on goods and services offered by other nodes, keeping the overall economy balanced without the need to ever open new channels or close old ones.
+
+Can this arrangement be sustained indefinitely? Intuitively it can, provided that all nodes balance income and expenses (if not, there is a node that runs a deficit and clearly cannot continue to do so forever, such situation is therefore not sustainable on the long term).
+
+Let us then assume that all incomes and expenses are balanced at node-level. What does this imply for the structure and usage of the channels of the payment network? Is active intervention on the topology and fee structure of the network necessary for its good health (to maintain enough channels operational and with enough capacity on the paths used for payments)? Or can the network, if left alone, be expected to maintain automatically its balance by virtue of the structure of the (balanced) flow of payments, and by virtue of the independent fee-minimizing routing choices of the single nodes?
+
+In section \ref{sec_steadystate} we explore this topic with a simple example. Then in section \ref{sec_formalization} we provide a formalization of the problem and approach it with the help of some rudimentary notions borrowed from graph theory.
+
+In section \ref{sec_practical}, we try to extract from the very idealized scenario presented here some practical insight that can be relevant for the functioning of the existing implementation of the Lightning Network, dealing with channel dynamics and with the possibility to influence them through the fee structure.
+
+Finally, in section \ref{sec_generalization} we present a generalized model that can be useful to study the situation where some nodes do not balance income and expenses (i.e. they run a deficit or surplus).
+
+Before continuing with the next section, note that in this paper we abstract away most of the complexity of the actual implementation of the Lightning Network, and instead look at it simply as an idealized payment network composed of bilateral payment channels with fixed capacity linking the participating nodes, with the property that --- through the network --- any node can transfer value to any other node, provided that a chain of channels exists with enough capacity to support the transaction (and with the possibility that intermediate nodes charge a fee for their service). Any consideration in this paper is therefore applicable in principle to any payment network with the same characteristics.
+
+\section{The steady state model}\label{sec_steadystate}
+
+\subsection{Main assumptions}
+
+As said in the introduction, we set ourselves in a future world where the volume of payments flowing through the Lightning Network exceeds by many orders of magnitude the flow of on-chain transactions, including channel openings and closings. We model such world by assuming that the flow of payments forms a closed economy: balances in Lightning Network channels just move between the two ends of the channel, and never appear or disappear.
+
+As a second modeling assumption, we imagine that, on certain timescales, the single payments originating from Lightning Network nodes could be seen not as discrete events, but as a continuous flow going through the network, and that such flow never accumulates in any node. In other words, the income received by one node on the goods and services it produces matches the expenses that the node allocates towards goods and services provided by other nodes. Each node continuously spends exactly what it earns, without running a deficit or a surplus.
+
+Finally, we assume that in the timescales we are considering, the spending patterns of the individual nodes are fixed, meaning that each node always distributes his income among other nodes in a way that remains constant over time (but note that the routes used to transfer the funds do not need to be fixed, they can vary depending on channel availability).
+
+We assume also that the spending patterns are independent from the network fees, that is, fees are considered negligible. While nodes are assumed to always optimize routes for the lowest fees, in our model the fees paid never affect the decision of spending funds on certain goods or services. Saying the same thing from another perspective: when there are funds in a channel that are available to be moved in one direction, we assume that the owner of the channel policy for that direction sets a fee that is not so high as to discourage purchases through it, and does not disable the channel (which would be equivalent to setting an infinite fee).
+
+Some consideration on time scales are in order. The assumption that flows are continuous seems reasonable on time scales long enough so that fluctuations can be disregarded, and the assumption that income = expenses could be reasonable for similar timescales if nodes are not using their on-channel balances as long term stores of value. Both assumptions are not so far-fetched on scales of the order of months, where we can assume that individual payment events smoothen out and nodes spend back what they earn.
+
+The assumption of fixed spending patterns over a period of months is more tenuous. Changes in spending patterns are likely significant during such a time frame. Nonetheless, the model remains a good mental framework to understand how the network might behave while certain spending patterns hold, keeping in mind that such behaviors are subject to change when the spending patterns change.
+
+To appreciate the consequences of such model, in the next section we see how it plays out on an extremely simplified example scenario.
+
+\subsection{Toy example}
+
+Consider three nodes $A$, $B$ and $C$, all connected by direct channels. The three nodes buy and sell goods and services to each other, forming a closed economy, and in particular:
+\begin{itemize}
+\item $A$ has an income of 100 mBTC/month, and spends it by paying 80 mBTC/month to $B$ and 20 mBTC/month to $C$.
+\item $B$ has an income of 100 mBTC/month, and spends it by paying 80 mBTC/month to $C$ and 20 mBTC/month to $A$.
+\item $C$ has an income of 100 mBTC/month, and spends it by paying 80 mBTC/month to $A$ and 20 mBTC/month to $B$.
+\end{itemize}
+
+To send the payments, the preference of each node is to use the direct channel to the recipient. The situation is then described by the following graph, where arrows show the flow of payments over channels.
+
+\begin{Verbatim}[samepage=true]
+                            +-------+
+            +-------------->|       +---------------+
+            | +-------------+   B   |<------------+ |
+         80 | |             |       |             | | 80
+            | | 20          +-------+          20 | |
+            | |                                   | |
+            | |                                   | |
+            | v                                   | v
+         +--+----+             20              +--+----+
+         |       +---------------------------->|       |
+         |   A   |<----------------------------+   C   |
+         |       |             80              |       |
+         +-------+                             +-------+
+\end{Verbatim}
+
+Clearly, this example shows a situation where the income and expenses of all nodes are perfectly balanced, but the flows in each channel are not.
+
+Let $D_{ij}$ be the demand to transfer funds across the $(i,j)$ channel in the direction from $i$ to $j$. We say that $D_{ij} - D_{ji}$ corresponds to the \emph{demand imbalance} on the channel $(i,j)$. In this toy example, all channels have a demand imbalance: funds accumulate on one end of the channel at a pace of $80-20=60$ mBTC/month.
+
+Demand imbalances are clearly unsustainable in the long term. So what happens if the conditions remain the same?
+
+Let us start from a situation where all channels have margin to sustain a flow of funds in either direction. We call these channels ``live''. At some point, one of the channels will exhaust its capacity in the direction of the imbalance. Let's say in our example that the channel from $B$ to $C$ is exhausted: all funds are pushed on the $C$ side and there is no more room for $B$ to make the full regular payments to $C$ using the channel. Actually, when a payment arrives from $C$ to $B$, $B$ gains some capacity to send back a payment to $C$ over the channel, but otherwise $B$ needs to find an alternative route.
+
+In other words, $B$ will be able to use the channel to $C$ only intermittently, and only to the extent that flows are balanced in the two directions (i.e. a flow of 20 can still be sent from $B$ to $C$, because it is balanced by the flow of 20 in the opposite direction). The rest of the flow (equal to 60) needs to be redirected.
+
+In such case we say that the channel $B$--$C$ is ``stuttering''.
+
+To summarize:
+\begin{itemize}
+\item A channel is \emph{live} if it can sustain a flow of funds in both directions.
+\item A channel is \emph{stuttering} if its balance is all pushed to one end, and the channel can sustain a flow of funds only intermittently in one direction.
+\end{itemize}
+
+When the excess flow from $B$ to $C$ is redirected through the only other route possible (the one through $A$), the following configuration will ensue:
+\begin{Verbatim}[samepage=true]
+                            +-------+
+            +-------------->|       0---------------+
+            | +-------------+   B   |<------------+ |
+         80 | |             |       |             | | 20
+            | | 80          +-------+          20 | |
+            | |                                   | |
+            | |                                   | |
+            | v                                   | v
+         +--+----+             80              +--+----+
+         |       +---------------------------->|       |
+         |   A   |<----------------------------+   C   |
+         |       |             80              |       |
+         +-------+                             +-------+
+\end{Verbatim}
+
+Note that the imbalances have now disappeared. The final configuration is an equilibrium that can be sustained indefinitely, characterized by two live channels ($A$--$B$ and $C$--$A$) and one stuttering channel ($B$--$C$, as indicated graphically by the 0 at the $B$ end of the channel). In addition, $A$ will collect fees for routing a flow of 60 from $B$ to $C$ (we disregard the actual amount of the fees in this simplified example).
+
+Let's try another example with the same three nodes, with the initial flows as follows:
+\begin{Verbatim}[samepage=true]
+                            +-------+
+            +-------------->|       +---------------+
+            | +-------------+   B   |<------------+ |
+         80 | |             |       |             | | 40
+            | | 40          +-------+           0 | |
+            | |                                   | |
+            | |                                   | |
+            | v                                   | v
+         +--+----+             20              +--+----+
+         |       +---------------------------->|       |
+         |   A   |<----------------------------+   C   |
+         |       |             60              |       |
+         +-------+                             +-------+
+\end{Verbatim}
+
+Depending on which channel ``breaks'' first, one of the following three configurations will be the final equilibrium.
+
+Case 1: $B$--$C$ breaks and becomes unused, $A$--$B$ and $C$--$A$ are live, $A$ routes 40:
+\begin{Verbatim}[samepage=true]
+                            +-------+
+            +-------------->|       0---------------+
+            | +-------------+   B   |<------------+ |
+         80 | |             |       |             | | 0
+            | | 80          +-------+           0 | |
+            | |                                   | |
+            | |                                   | |
+            | v                                   | v
+         +--+----+             60              +--+----+
+         |       +---------------------------->|       |
+         |   A   |<----------------------------+   C   |
+         |       |             60              |       |
+         +-------+                             +-------+
+\end{Verbatim}
+
+Case 2: $A$--$B$ breaks and becomes stuttering, $B$--$C$ and $C$--$A$ are live, $C$ routes 40:
+\begin{Verbatim}[samepage=true]
+                            +-------+
+            +-------------->|       +---------------+
+            | +-------------+   B   |<------------+ |
+         40 | |             |       |             | | 40
+            | | 40          +-------+          40 | |
+            | |                                   | |
+            | |                                   | |
+            | v                                   | v
+         +--0----+             60              +--+----+
+         |       +---------------------------->|       |
+         |   A   |<----------------------------+   C   |
+         |       |             60              |       |
+         +-------+                             +-------+
+\end{Verbatim}
+
+Case 3: $C$--$A$ breaks and becomes stuttering, $A$--$B$ and $B$--$C$ are live, $B$ routes 40:
+\begin{Verbatim}[samepage=true]
+                            +-------+
+            +-------------->|       +---------------+
+            | +-------------+   B   |<------------+ |
+         80 | |             |       |             | | 40
+            | | 80          +-------+          40 | |
+            | |                                   | |
+            | |                                   | |
+            | v                                   | v
+         +--+----+             20              +--+----+
+         |       +---------------------------->|       |
+         |   A   |<----------------------------0   C   |
+         |       |             20              |       |
+         +-------+                             +-------+
+\end{Verbatim}
+
+Intuitively, the story of these examples goes as follows: imbalances can appear as ``circuits'' in the graph (imbalances cannot emerge from a node or disappear into a node). These imbalances will persist until a channel ``breaks'' and becomes stuttering, then the demand will shift to other channels and will tend to make the circuit disappear. Eventually, all circuits disappear and what remains is a smaller set of live channels, with perfectly balanced demand.
+
+The same dynamic will be explored in the next section in a more formal setting.
+
+\section{Formalization}\label{sec_formalization}
+
+Let us take a more general approach now and play around with some matrices. Concepts and language here are mostly borrowed from \href{https://en.wikipedia.org/wiki/Graph_theory}{graph theory} and re-adapted for the Lightning Network.
+
+\subsection{Definitions}
+
+We assume that the Lightning Network is a connected graph, with $n$ nodes and $m$ channels. We assume also that two nodes never have more than one channel open between them (many channels between the same two nodes can be thought as being a single channel with combined capacity).
+
+Given a channel between nodes $A$ and $B$, we define arbitrarily one direction as ``positive'' (e.g. from $A$ to $B$). The opposite direction will then be the ``negative'' direction (e.g. from $B$ to $A$). This is just a convention and does not need to be related in any way to channel properties, such as whether $A$ or $B$ was the node that opened the channel.
+
+For each channel $e$ and each node $j$, the spending preferences of $j$ and the preferred paths that $j$ uses to send payments determine a certain \emph{demand} for using channel $e$, either in the positive direction or in the negative direction.
+
+As an example, Alice, with an income of 100 mBTC/month, wants to spend all of it on Bob's store, and the preferred path for Alice to Bob on the Lightning Network is Alice $\rightarrow$ Carol $\rightarrow$ Bob. Alice will then place a demand of 100 mBTC/month on the channel between Alice and Carol (in the direction Alice $\rightarrow$ Carol) and a demand of 100 mBTC/month on the channel between Carol and Bob (in the direction Carol $\rightarrow$ Bob).
+
+We represent the demands that each node places on each channel as two \emph{demand matrices} (of dimension $m \times n$): $D^+$ and $D^-$ (for the demand in the positive and negative directions respectively). So $D^+_{ej}$ will be the demand of node $j$ to use channel $e$ in the positive direction, and $D^-_{ej}$ will be the demand of node $j$ to use channel $e$ in the negative direction.
+
+If we aggregate and net all the demands on a single channel, we obtain the \emph{demand imbalance}, which we call $D^*$. The demand imbalance is a $m \times 1$ vector that represents, for each channel, how much the demand in one direction exceeds the demand in the other direction. Formally:
+
+\begin{equation}
+D^* = (D^+ - D^-) \mathbf{1}
+\end{equation}
+
+where $\mathbf{1}$ is the $n \times 1$ vector composed of all ones.
+
+Let us also define the \emph{incidence matrix} $M$ as the $m \times n$ matrix describing the topology of the network: each row of $M$ (corresponding to a channel of the network) is defined as being all zeros except for two elements (corresponding to the two nodes linked by that channel), where the values are $1$ and $-1$. Following the convention on the directions of the channels, the signs of the elements of $M$ are chosen such that a channel, when seen in the positive direction, goes from the node with $1$ to the node with $-1$.
+
+Note that the product $M^T M$ corresponds to the \href{https://en.wikipedia.org/wiki/Laplacian_matrix}{\emph{Laplacian matrix}} $L$ of the network graph --- one of the recurring matrices in graph theory --- which is a $n \times n$ matrix where the values on the diagonal indicate the number of channels of each node, and the values outside the diagonal are either $-1$ or $0$ depending whether two nodes are connected or not.
+
+Finally, we define the \emph{income/expense matrix} $E$ (of dimension $n \times n$) as the product:
+
+\begin{equation}
+E = M^T (D^+ - D^-)
+\end{equation}
+
+The matrix $E$ captures the spending preferences of the nodes of the network. Namely, an element on the diagonal $E_{ii}$ corresponds to the total expenses of node $i$, while an element $E_{ij}$ outside the diagonal corresponds to $-p_{ji}$, with $p_{ji}$ defined as the ``payment flow'' from $j$ to $i$, i.e. the amount of money that node $j$ wants to spend on node $i$ (or conversely, the income that $i$ receives from $j$). (Math-inclined readers might want to stop for a moment here and work through the product to confirm this result).
+
+\subsection{Properties of the income/expense matrix}
+
+$E$ is in a way the analogue for a payment network of the Laplacian matrix for a graph: it captures the properties of the payment flows on top of the topological properties of the underlying graph.
+
+By definition, the columns of $E$ sum to zero:
+
+\begin{equation}
+\mathbf{1}^T E = 0
+\end{equation}
+
+The assumption introduced in section \ref{sec_steadystate}, that the total income of each node is equal to its total expenses, corresponds to assuming that the rows of $E$ sum to zero, too\footnote{As a side remark, note that when a matrix --- like the Laplacian matrix --- has all rows and columns summing to zero, then all cofactors are equal and their value is $\lambda_1 \lambda_2 \ldots \lambda_{n-1} / n$, where $\lambda_1, \ldots, \lambda_{n-1}$ are the $n-1$ largest eigenvalues (see \href{www.maths.qmul.ac.uk/~pjc/odds/zero.pdf}{here}).}. That is:
+
+\begin{equation}
+E \mathbf{1} = 0 \quad \textrm{when income = expenses}
+\end{equation}
+
+Under the same assumption, note also that the following holds for a generic $n \times 1$ vector $x$:
+
+\begin{equation}\label{eq_quadratic}
+x^T E x = \tfrac{1}{2} \sum_{i,j} p_{ij} (x_i-x_j)^2
+\end{equation}
+
+which means that $E$ is a positive semidefinite matrix (to the extent that the definition of positive semidefinite can be extended to non-symmetric matrices).
+
+For reference, the analogous relation for the Laplacian matrix $L$ is
+
+\begin{equation}
+x^T L x = \sum_{(i,j) \mathrm{edges}} (x_i-x_j)^2
+\end{equation}
+
+As known from graph theory, if the graph is connected then the rank of $M$ and of $L$ is equal to $n-1$. The income/expense matrix is also related to the connectedness of the graph, but only \emph{in an economic sense}. For payments flowing on a connected graph, the rank of $E$ can indeed be lower than $n-1$. When this happens, it means that the graph is not connected economically: there is a way to divide the economy into two separate segments that do not interact. To see this, consider equation \eqref{eq_quadratic}: if an eigenvector $x$ exists, different from $\mathbf{1}$, such that $x^T E x = 0$, then payment flows will be zero between all pairs ($i$, $j$) such that $x_i \neq x_j$, which means that sections of the graph with different $x_i$ values do not interact economically.
+
+We say that the graph is \emph{economically connected} if $E$ has rank $n-1$.
+
+There are various results in graph theory that link the properties of the Laplacian matrix and its eigenvalues to properties of the graph (see for instance \href{https://en.wikipedia.org/wiki/Cheeger_constant_(graph_theory)#Cheeger_Inequalities}{Cheeger Inequalities} and \href{https://en.wikipedia.org/wiki/Kirchhoff\%27s_theorem}{Kirchhoff's theorem}). It is left as an open question for future investigation whether similar results could be derived linking the properties of the income/expense matrix with some characteristics of the payment flows.
+
+\subsection{Main result}\label{sec_main}
+
+We are now ready to give an answer to the original question. We wanted to know if balancing income and expenses implies that channels tend to self-balance. Recapping, balancing income and expenses means $E \mathbf{1} = 0$, which we write as:
+
+\begin{equation}
+E \mathbf{1} = M^T (D^+ - D^-) \mathbf{1} = M^T D^* = 0
+\end{equation}
+
+while the condition to have channels balanced is:
+
+\begin{equation}
+D^* = 0
+\end{equation}
+
+The first condition does not imply the second, so the answer to the question is clearly no. This is not surprising, and just confirms the intuition developed in section \ref{sec_steadystate}. But more importantly, it gives some insight on the relation between the two conditions, which can be studied in more detail.
+
+Note that the condition $M^T D^* = 0$ means that $D^*$ lives in a subspace related to the \href{https://en.wikipedia.org/wiki/Cycle_space}{cycle space} of the graph, with a number of dimensions equal to its \href{https://en.wikipedia.org/wiki/Circuit_rank}{circuit rank}. In other words, the demand imbalance flows (``circuits'') around the graph without stopping at any node, and has a number of degrees of freedom to do so, given by the circuit rank. Assuming that the Lightning Network graph is connected, this means that $D^*$ has $m-n+1$ degrees of freedom.
+
+In practice $D^*$ will be determined by the specific spending patterns and by the fee structure of the network. When node operators do not make choices specifically designed to balance the demands in their channels (i.e. managing fees on each channel to perfectly balance the demand in the two directions), then $D^*$ will be a generic vector, that is, $D^* \neq 0$ in general. Channels do not self-balance without active intervention.
+
+Let us assume that our graph is both connected and economically connected. What happens in the long term if everything stays fixed (no change in spending patters, no change in fees) and we just let time go by?
+
+It will happen that --- at some point --- one of the unbalanced channels (let us call it $c$) will be completely consumed (the balance of the channel will hit the boundary on one side). Channel $c$ will become stuttering. The nodes that have placed demand on $c$ will start to see payment failures, and will move part of their demands on different routes\footnote{Under our assumptions, alternative routes will always be available: since the demand imbalance ``circuits'' around the graph, there is always the possibility to go around channel $c$ by taking the opposite direction along the circuit.} during the moments of unavailability of the channel, with the overall result of equalizing the demand on $c$ in the two directions. The new vector $D^*$ will then be a vector still satisfying $M^T D^* = 0$, but with the additional constraint $D^*_c = 0$.
+
+Note that removing the stuttering channel will in no case disconnect the graph: if it did so there would be a cut in the graph with non-zero flow passing through it, while we know that the demand imbalance circuits around the graph with no source or sink, so all cuts must have zero flow.
+
+At this point some other channels might also become completely unused. Removing such channels will also not disconnect the graph: if it did so the graph was not economically connected to begin with.
+
+We can then repeat the process until another channel hits its boundary, and so on. If at some point $m-n+1$ channels have either hit boundary or are completely unused, then there will be no more degrees of freedom left and the only solution possible will be $D^* = 0$. Therefore, the remaining $n-1$ channels, still live, will automatically have a balanced demand.
+
+Since the graph is still connected when we consider only the remaining $n-1$ channels, they form a \href{https://en.wikipedia.org/wiki/Spanning_tree}{spanning tree}, which we call the \emph{core spanning tree} of the network. It is one among the $N$ possible spanning trees of the graph (where $N$ is given by Kirchhoff's theorem).
+
+The core spanning tree is very much an idealized object, which depends on the exact spending patterns and fee structure of the network and assumes that the same conditions are protracted indefinitely. As the spending patterns and fees change, so will the core spanning tree. The core spanning tree is however an equilibrium that enjoys a certain degree of stability: to produce a new equilibrium, adding small disturbances in the demand applied to unbalanced channels is not enough, the equilibrium will change only when the disturbances are big enough to ``flip the sign'' of the demand imbalance of a channel, turning it from stuttering to live.
+
+There are some similarities between the process described here and the \href{https://en.wikipedia.org/wiki/Ford\%E2\%80\%93Fulkerson_algorithm}{Ford--Fulkerson method} to compute the maximum flow in a flow network. It is important, though, not to confuse the process to find the core spanning tree with a global optimization problem, as in the case of Ford--Fulkerson.
+
+Instead, in the Lightning Network each node solves its own optimization problem to find the best available path to send payments (minimizing the fees paid), changing the solution as the network conditions change and channels begin to stutter. Indeed, the solution is very much dependent on the order in which channels begin to stutter.
+
+In summary, the process described here to reach an equilibrium reflects the simple mechanism of the initial example: as long as channels allow loops in the payment flows, they will become imbalanced until one channel will ``cave in'' and become stuttering. Eventually all loops disappear, and the remaining live channels will form a tree where the payments automatically balance in the two directions due to the condition that nodes spend back all the income they receive.
+
+There is an open question --- purely mathematical --- about the convergence towards the equilibrium of this process. In theory, it is possible that when a channel begins to stutter, the shift in demand to other channels could force some of them to go from being stuttering to being live again. However, in any reasonable graph this process would not go on forever. If the reader knows a proof that an equilibrium is indeed always reached, the author would be happy to see it.
+
+\subsection{Spanning trees as tools for measuring the network}
+
+While highly idealized, the core spanning tree is a useful concept to think about the structure of the Lightning Network. It supports the idea that the network could have a tendency to concentrate payment flows through a small backbone of stable channels, while most of the other ``peripheral'' channels are just unused or are intermittently available.
+
+If it were possible to estimate the core spanning tree, its features could be used effectively as metrics for the network. For instance, the sequence of degrees of the nodes in the tree could be a useful metric for seeing how much the network is distributed or centralized, in a way that takes into account the payment flows in addition to the network geometry. This approach would complement other properties of the network, such as measures of centrality based only on channel topology (central point dominance, diameter, mean shortest path, and so on), and would have the potential to capture to a certain extent the interactions of various factors: the payment demands of the nodes, their preferred paths, and channel capacities.
+
+While estimating the core spanning tree directly is likely out of reach, it is possible to define other spanning trees that maintain some relation with the structure of the network, and that are more readily computable. One of these spanning trees is what we call the \emph{geometric spanning tree} and is defined solely by the capacity and by the fees of the channels. It emerges by solving the following linear optimization problem: let $f^+$ and $f^-$ be $m \times 1$ vectors representing the fees paid to use a channel in the positive and negative direction respectively; find $m \times 1$ vectors $x^+$ and $x^-$ that realize the minimum:
+
+\begin{equation}
+\min {f^+}^T x^+ + {f^-}^T x^-
+\end{equation}
+
+with the constraints
+
+$$M^T (x^+ - x^-) = \textrm{initial node balance,}$$
+$$x_c^+ + x_c^- = \textrm{capacity}(c), \quad x_c^+, x_c^- \geq 0 .$$
+
+Here $x^+$ and $x^-$ represent the channel balance for each channel, as seen by the positive side and the negative side of the channel respectively. The optimization will move the balances in loops (so that the balance at each node is unaffected) until one channel is exhausted.
+
+This is basically another way to start with the full network and ``break the loops'' to get down to a tree. However, when finding the core spanning tree, we broke loops by looking at the channels that became exhausted due to the actual activity of the network. Here, instead, we break the loops by pushing hypothetical payments into loops based on the difference between the total fees along the two directions of the loop.
+
+This is a reasonable way to break the loops and derive a spanning tree that still encodes some information about the ``backbone'' of the network, but of course the results might be very different from the core spanning tree. The advantage of the geometric spanning tree is that it can be readily computed if all channel balances are known, or approximated if one can guess or estimate the balances.
+
+\section{Practical considerations on channel dynamics}\label{sec_practical}
+
+Let us go back for a moment to the second example in section \ref{sec_steadystate}. We have seen that the tendency of the network towards forming a core spanning tree of live channels is influenced --- in our idealized scenario --- by the order in which the channels ``break'' under the pressure of the demand imbalance. In fact, it could happen that two of the channels in the example have an infinitesimal difference in their ability to sustain the imbalance, yet the final equilibrium will be quite different depending on which channel begins to stutter first.
+
+But how relevant is this mental model for a node operator of the actual Lightning Network, where conditions might be very far from the ones of the model --- even in a future where the network has scaled up massively?
+
+We argue that such mental model offers to the node operator a clear frame of reference to help devise possible strategies to deal with unbalanced channels. To see this point, let us imagine an operator of a routing node that detects a certain persistent pattern of imbalance between two of the channels connected to its node $A$. The two channels show sustained traffic that is imbalanced in the two directions, as in the example below where the payments forwarded along the path $c_1 \rightarrow c_2$ are on average greater than the payments forwarded along the path $c_2 \rightarrow c_1$:
+\begin{Verbatim}[samepage=true]
+                      c1                 c2
+
+              ---+    80    +-------+    80    +---
+                 +--------->|       +--------->|
+                 |<---------+   A   |<---------+
+                 |    20    |       |    20    |
+              ---+          +-------+          +---
+\end{Verbatim}
+
+The node operator can think about this imbalance as an element of a ``circuit'' of demand imbalance that ``flows'' around the network, involving a number of other nodes such as $B$, $C$, $D$, etc. We can picture the situation as in the graph below, where +60 indicates a flow of 60 more than in the opposite direction (imagine that each node has also many other channels open in addition to the ones pictured below, where the demand imbalance flows).
+
+\begin{Verbatim}[samepage=true]
+             +---+    80    +---+    80    +---+
+             | F +--------->| A +--------->| B |
+             +---+<---------+---+<---------+---+
+               ^|     20             20      ^|
+           +60 ||                            || +60
+               |v                            |v
+             +---+          +---+          +---+
+             | E +--------->| D +--------->| C |
+             +---+<---------+---+<---------+---+
+                     +60            +60
+\end{Verbatim}
+
+If the node operator sees that its channels are close to become stuttering, thinking in these terms will help assess the possible responses and reason about their consequences. We see in fact three main strategies to avoid stuttering channels:
+\begin{itemize}
+\item \emph{Raise fees} in the direction of the imbalance. We call this a \textbf{dropout} strategy, because with this action, the operator basically renounces to grow the traffic passing through its node, being satisfied with the 20 worth of balanced traffic (and trying to extract from it the maximum profit through increased fees). There is no fight to keep the other 60 worth of imbalanced traffic.
+
+\item \emph{Lower fees} in the direction opposite to the imbalance. We see this partially as an \textbf{undercut} strategy and partially as a \textbf{collaborative} strategy. It can be seen as an attempt to undercut the competition and attract traffic in the weaker direction, at the expense of lower income for unit of traffic. It can be seen also as a signal to other nodes in the circuit that $A$ would be open to a manual rebalancing of the channels. In this sense this action is collaborative: if a sufficient number of nodes along the circuit takes this approach, it could become economically advantageous to periodically send a rebalancing circular payment along the circuit to restore the depleted channels\footnote{Note that under normal circumstances a manual rebalance of a channel is a dubious channel management strategy, as there is not much hope that the fees spent for the rebalancing payment could be made up for by the captured traffic. The proportion of fixed and proportional fees along the path needs to be just right for such action to be profitable.}.
+
+\item \emph{Increase capacity}, by adding new channels to $B$ or to other nodes. We see this strategy as a sort of \textbf{fight for the core spanning tree}. The idea behind the strategy is that once the imbalance breaks in some part of the circuit, $A$ would be able to capture part of the missing traffic at the expense of the nodes that suffer the stuttering channels. For instance, at some point the traffic that $B$ sends to $C$ might instead go back through $A$. In a sense, node operators that engage in such behavior play a ``game of chicken'' among themselves, where the ones that can increase capacity the most end up as the winners, and could aspire to become eventually part of the ``backbone'' of the network.
+\end{itemize}
+
+In summary, we believe that the steady-state model we proposed for the Lightning Network is far from being a perfect representation, but it can be a useful tool to reflect upon trends and strategies in a future scaled-up version of the network. Obviously the core spanning tree will never emerge clearly from the actual traffic of the network, since the conditions underlying the network will constantly change, but indeed reasoning in terms of spanning trees, live and stuttering channels, offers some insight to understand how the network might evolve qualitatively from both a local and global perspective.
+
+We conclude this section by offering another remark, in relation to using fees as a feedback loop to keep channels balanced. There is general consensus on the fact that having a large fraction of channels not usable or barely usable in one direction is not a healthy predicament for the network, and that some form of channel management will need to be practiced by node operators involving a mix of rebalancing and fee fine-tuning. However, one of the main takeaways of the analysis of the steady-state model is that the network might have a tendency to push \emph{most} of the channels (when not unused) towards being chronically unbalanced.
+
+We wonder if these two tools (rebalancing and fee management) are really enough to contrast the tendency toward imbalance. If not, it would be appropriate to consider also other strategies to ``work with the imbalances'' instead of fighting them. We refer, for example, to efficient low-latency mechanisms to signal when a channel becomes unusable in one direction, in order to limit the failure rate, together with a general robustness of the network against a pervasive and high-volume flow of information about channels that switch from being available to not available and vice versa (or that switch between low fees and high fees).
+
+\section{Generalization to income $\neq$ expenses}\label{sec_generalization}
+
+There are various possible approaches to study the evolution of a payment network under the assumption that nodes are free to run deficits or surpluses. What we propose here is a method to reduce the problem to a (modified) version of the situation just seen, with no deficits and surpluses. This allows to reuse the intuition developed before, and properly emphasizes the perspective that deficits and surpluses are just ``perturbations'' of the case where incomes and expenses are balanced, since a final steady-state equilibrium will in any case have balanced incomes and expenses.
+
+Let us start then by going back to the relation $M^T D^* = 0$ seen in section \ref{sec_main} and modify it to take into account the possibility of having deficits and surpluses. The result is the following more general relation:
+
+\begin{equation}\label{eq_deficit}
+M^T D^* = -D^b
+\end{equation}
+
+where $D^b$ is a vector representing the \emph{demand to accumulate balance} for a node (if positive), or the \emph{demand to reduce balance} for a node (if negative). A demand to accumulate balance applies to nodes that run a surplus, while a demand to reduce balance applies to nodes that run a deficit.
+
+Note that $D^b$ sums to zero (i.e. $\mathbf{1}^T D^b = 0$): since we are in a closed economy, the surpluses of some nodes are always compensated by the deficits of some other nodes.
+
+We can rewrite equation \eqref{eq_deficit} in the following way:
+
+\begin{equation}\label{eq_deficit2}
+M'^T D' = 0
+\end{equation}
+
+where $M'$ is a $(m+n) \times (n+1)$ matrix which is constructed from $M$ as:
+
+\begin{equation}
+M' =
+\begin{pmatrix}
+M & \mathbf{0} \\
+I & -\mathbf{1}
+\end{pmatrix}
+\end{equation}
+
+with $I$ the $n \times n$ identity matrix, and where
+
+\begin{equation}
+D' =
+\begin{pmatrix}
+D^* \\
+D^b
+\end{pmatrix}
+\end{equation}
+
+Formally, equation \eqref{eq_deficit2} corresponds to a scenario where we have removed the deficits and surpluses, but to do so we have modified the original network: in this new formulation, the problem has been translated from a matter of balancing surpluses/deficits to a matter of balancing $n$ more channels (the channels associated with the extra rows of $M'$).
+
+There is a very straightforward interpretation of this mathematical reformulation: it corresponds to having an expanded network constructed as follows:
+\begin{itemize}
+\item A new ``virtual node'' is added to the graph (the additional column of $M'$).
+\item The virtual node is connected to each of the other nodes via $n$ ``virtual channels'' (the $n$ additional rows of $M'$).
+\item The nodes that run a surplus place a corresponding demand on their virtual channels, in the direction towards the virtual node.
+\item The nodes that run a deficit place a corresponding demand on their virtual channels, in the direction towards themselves.
+\item The balances of the virtual channels reflect the amount of funds that the nodes can use for deficit spending.
+\end{itemize}
+
+In such a network, every payment can be seen as circular: it can be represented as a flow starting from the virtual node (retrieving funds from the reserve of the payer), going towards the destination node, and finally from there back to the virtual node (storing funds in the reserve of the payee)\footnote{Interested readers can ponder on the fact that such model --- with a virtual node --- is in fact a good mental framework for the actual money circulation in the modern era, dominated by central banking and by a deeply interconnected financial system, where almost every payment is mediated by the banks and where the banking system can be considered as a single entity for practical purposes (i.e. the equivalent of a single ``virtual node''), since liquidity flows with very little constraints within the banking system itself. Payments in fiat currencies are in this sense circular: they start with the payer requesting the banking system to make some funds available to themselves, the funds are then transferred from the payer to the payee, and they are finally deposited back into the banking system. The critical difference lies in the lack of a zero bound for the channels of the ``banking system'' node: nodes can be allowed to have a negative balance (i.e. go into debt, corresponding to a money-creation operation by the banking system). The power of the banking system to allow economic agents to have negative balances (some more than others, possibly unlimited --- such as in the case of sovereign states) makes all the difference compared to the model above, applicable to a ``hard-money'' setting where nodes can only deficit-spend whatever reserves they accumulated before.}.
+
+Applying the ideas of section \ref{sec_main} to this setting, we can imagine to start with all $m+n$ channels as ``live'' and gradually let the system evolve. Channels will become ``stuttering'' as before, but virtual channels becoming stuttering will have a special meaning: they indicate nodes that have reached their limit for deficit spending. This is a situation somewhat different than before, because when a node is forced to stop deficit spending, it causes some other nodes to lose part of their income, meaning that those nodes will have to also start deficit spending, reduce their accumulation, or modify their spending patterns.
+
+But like before, if in the end a certain number of channels has become stuttering or unused (no more than $m$ channels), then the system will reach an equilibrium and a structure formed by the remaining live channels will emerge.
+
+Note that while the extended graph is topologically connected, the considerations made before on economical connectedness do not apply anymore, so we cannot talk about a ``core spanning tree'' in this scenario. At a minimum, breaking the circuits of demand imbalance that pass through the virtual node will at some point make all virtual channels stuttering or unused, disconnecting the virtual node. Moreover, more nodes might become disconnected, depending on the way the spending patterns are set up and evolve. As an example, if a node funded its expenses entirely by running a deficit, once the deficit hits the limit, spending will stop and the node will become disconnected.
+
+It is also possible that, when a channel becomes stuttering, a node will not be able to find an alternative path to continue spending. This would be a peculiar case where a node is prevented to spend not because of lack of funds, but because of lack of available paths to send payments.
+
+In the final steady state configuration, the nodes with stuttering virtual channels will be the nodes that are forced to balance their income and expenses due to lack of funds to continue the deficit spending. The other nodes will find that their income and expenses are automatically balanced.
+
+\section{Conclusion}\label{sec_conclusion}
+
+In this paper, we have explored a scenario that --- despite being markedly abstract --- can serve as a useful mental model for a future scaled-up version of the Lightning Network. We have presented some consequences of the model that we believe display a certain mathematical elegance, while also revealing some practical insight that could be useful for future operators of Lightning Network nodes.
+
+In particular, we have seen how the condition for having balanced income and expenses implies that the demand imbalance on the channels of the network flows around in ``circuits'', and that letting the system evolve towards equilibrium (breaking the circuits) causes a spanning tree to emerge from the topology of the network.
+
+We have also given some hints of how spectral graph theory could be useful for understanding the peculiarities of payment channel networks, even if the graph theory aspects were presented here without any pretense of academic depth. In fact, we would welcome further investigation on this topic, aiming at uncovering more formal relations and points of contact between spectral graph theory and payment networks.
+
+\end{document}
